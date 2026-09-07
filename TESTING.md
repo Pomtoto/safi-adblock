@@ -1,5 +1,7 @@
 # Validation record — Safi 1.0.0
 
+This record describes the original direct-SDK APK identified below. Later GitHub CI builds have their own run reports and BUILD-INFO.txt; see [CI.md](CI.md).
+
 Date: 2026-09-07. This is an experimental, sideloadable build, not a production certification or guarantee for every Android device or ad network.
 
 ## Built APK

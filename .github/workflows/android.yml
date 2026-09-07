@@ -1,0 +1,171 @@
+name: Android APK
+
+"on":
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "نشر APK بإصدار تجريبي جديد للتنزيل"
+        type: boolean
+        required: true
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "*.gradle"
+      - "gradle.properties"
+      - "tools/build-ci.sh"
+      - "tools/test-core.sh"
+      - "tests/CoreTests.java"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ANDROID_COMPILE_SDK: "35"
+  ANDROID_BUILD_TOOLS: "35.0.0"
+
+jobs:
+  build:
+    name: Build, test and sign APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify Gradle Wrapper
+        run: |
+          echo '2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046  gradle/wrapper/gradle-wrapper.jar' | sha256sum --check --strict
+          chmod +x gradlew tools/*.sh
+
+      - name: Set up Java 17
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            **/*.gradle
+            gradle.properties
+            gradle/wrapper/gradle-wrapper.properties
+
+      - name: Install Android SDK components
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" "platforms;android-$ANDROID_COMPILE_SDK" "build-tools;$ANDROID_BUILD_TOOLS"
+          test -f "$ANDROID_HOME/platforms/android-$ANDROID_COMPILE_SDK/android.jar"
+          test -x "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/apksigner"
+
+      - name: Run DNS and packet tests
+        run: |
+          bash tools/test-core.sh | tee "$RUNNER_TEMP/safi-core-tests.txt"
+
+      - name: Compile release APK and run Android Lint
+        run: ./gradlew --no-daemon --stacktrace :app:assembleRelease :app:lintRelease
+
+      - name: Sign with the existing app certificate
+        env:
+          ANDROID_SIGNING_KEYSTORE_B64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_B64 }}
+          ANDROID_SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
+          ANDROID_SIGNING_ALIAS: safi
+          EXPECTED_CERT_SHA256: 64d348b08d017ea23d9f54b667b7ca4938d93ab7080d19d74b7c75d60a114c99
+        run: bash tools/build-ci.sh
+
+      - name: Upload signed APK
+        id: apk
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Safi-Android
+          path: release-output/
+          if-no-files-found: error
+          retention-days: 14
+          archive: true
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Safi-test-reports
+          path: |
+            ${{ runner.temp }}/safi-core-tests.txt
+            app/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+          retention-days: 14
+          archive: true
+
+      - name: Write build summary
+        if: success()
+        env:
+          ARTIFACT_URL: ${{ steps.apk.outputs.artifact-url }}
+        run: |
+          {
+            echo '## صافي — اكتمل بناء APK داخل GitHub'
+            echo
+            echo "[تنزيل حزمة APK الموقعة]($ARTIFACT_URL)"
+            echo
+            echo 'الملف بنفس شهادة توقيع النسخة الأصلية. مصدر البناء موجود في هذا الالتزام:'
+            echo "\`$GITHUB_SHA\`"
+            echo
+            echo 'الاختبارات آلية؛ هذا البناء لا يضيف اختبارًا على هاتف فعلي.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish a downloadable build
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the verified APK bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Safi-Android
+          path: release-output
+          digest-mismatch: error
+
+      - name: Publish a new prerelease without replacing earlier releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="github-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          NOTES="$RUNNER_TEMP/safi-release-notes.md"
+          cat > "$NOTES" <<'NOTES_EOF'
+          ## صافي — بناء من المصدر داخل GitHub Actions
+
+          نزّل ملف `Safi-*-github.apk` من Assets وثبّته على أندرويد 8 أو أحدث.
+          الملف موقّع بنفس شهادة النسخة الأصلية؛ الروت غير مطلوب ولا يطلب التطبيق صلاحياته.
+
+          هذه نسخة تجريبية. نجح البناء واختبار الكود في GitHub، لكن ذلك لا يعني أنها اختُبرت على كل هاتف.
+          يحجب التطبيق مصادر الإعلانات عبر DNS، ولا يضمن إزالة إعلانات يوتيوب أو إعلانات نفس نطاق المحتوى.
+          لا يعمل مع VPN آخر. طلبات DNS المسموحة تُرسل مشفّرة إلى Cloudflare.
+
+          المستودع خاص: يلزم تسجيل الدخول بحساب مخوّل للتنزيل.
+          الكود المقابل متاح في ملفات Source code لهذا الوسم، تحت GPL-3.0، بلا ضمان.
+          بصمات APK ومعلومات المصدر والتوقيع مرفقة مع الإصدار.
+          NOTES_EOF
+          printf '\n[سجل البناء والاختبارات](%s/%s/actions/runs/%s)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$NOTES"
+          gh release create "$TAG" release-output/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Safi — GitHub build #$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT" \
+            --prerelease \
+            --notes-file "$NOTES"
+          printf '## APK جاهز للتنزيل\n\n[فتح الإصدار الجديد](%s/%s/releases/tag/%s)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -3,7 +3,7 @@
 <!-- github-downloads -->
 > 🔒 هذا مستودع خاص. يلزم تسجيل الدخول بحساب لديه صلاحية لعرض الكود وتنزيل الإصدار.
 
-**[تنزيل التطبيق APK وملف المصدر](https://github.com/Pomtoto/safi-adblock/releases/tag/v1.0.0)** · [طريقة التثبيت](INSTALL-AR.md) · [نتائج الاختبار وحدوده](TESTING.md)
+**[تنزيل التطبيق APK وملف المصدر](https://github.com/Pomtoto/safi-adblock/releases)** · [طريقة التثبيت](INSTALL-AR.md) · [البناء داخل GitHub](CI.md) · [نتائج الاختبار وحدوده](TESTING.md)
 
 <p align="center"><img src="tests/screenshots/protection-active.png" width="280" alt="لقطة فعلية من واجهة صافي العربية أثناء اختبار الحجب"></p>
 <!-- /github-downloads -->

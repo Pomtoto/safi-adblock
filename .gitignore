@@ -9,3 +9,6 @@ artifacts/
 .env.*
 *.apk
 *-signing.jks
+release-output/
+*.p12
+*.pfx
