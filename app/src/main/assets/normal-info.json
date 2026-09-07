@@ -1,0 +1,13 @@
+{
+  "name": "HaGeZi Multi NORMAL (wildcard, domain-only format)",
+  "upstream": "https://github.com/hagezi/dns-blocklists",
+  "source": "https://raw.githubusercontent.com/hagezi/dns-blocklists/c22e2f96fd9565f928d6ce22ddc41022042356f7/wildcard/multi-onlydomains.txt",
+  "commit": "c22e2f96fd9565f928d6ce22ddc41022042356f7",
+  "upstream_commit_time": "2026-09-07T08:55:10Z",
+  "retrieved_on": "2026-09-07",
+  "license": "GPL-3.0",
+  "sha256": "d0ef0be9225667776bc6931c52fd182b8c0d28bbaf9aea2a474c8515951165cf",
+  "file": "hagezi-normal.txt",
+  "count": 191639,
+  "version": "2026.0907.0805.53"
+}

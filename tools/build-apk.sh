@@ -7,6 +7,9 @@ SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 : "${SDK:?Set ANDROID_SDK_ROOT to an SDK with platform 35 and build-tools 35.0.0}"
 BT="$SDK/build-tools/${ANDROID_BUILD_TOOLS:-35.0.0}"
 JAR="$SDK/platforms/android-35/android.jar"
+VERSION_CODE="$(awk -F= '$1=="versionCode"{print $2}' "$ROOT/app/version.properties")"
+VERSION_NAME="$(awk -F= '$1=="versionName"{print $2}' "$ROOT/app/version.properties")"
+[[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ && "$VERSION_NAME" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo 'Invalid app version properties' >&2; exit 1; }
 WORK="$ROOT/artifacts"
 rm -rf "$WORK/classes" "$WORK/generated" "$WORK/dex"
 mkdir -p "$WORK"/{classes,generated,dex}
@@ -17,7 +20,7 @@ t=E.parse(sys.argv[1]);t.getroot().set('package','app.safi.shield');t.write(sys.
 PY
 "$BT/aapt2" compile --dir "$ROOT/app/src/main/res" -o "$WORK/resources.zip"
 "$BT/aapt2" link -o "$WORK/resources.apk" --manifest "$WORK/AndroidManifest.xml" -I "$JAR" \
- --java "$WORK/generated" --min-sdk-version 26 --target-sdk-version 35 --version-code 1 --version-name 1.0.0 \
+ --java "$WORK/generated" --min-sdk-version 26 --target-sdk-version 35 --version-code "$VERSION_CODE" --version-name "$VERSION_NAME" \
  -A "$ROOT/app/src/main/assets" "$WORK/resources.zip"
 find "$ROOT/app/src/main/java" "$WORK/generated" -name '*.java' > "$WORK/sources.txt"
 javac -J-Xmx256m -encoding UTF-8 --release 8 -classpath "$JAR" -d "$WORK/classes" @"$WORK/sources.txt"
@@ -36,8 +39,8 @@ if [[ ! -f "$KEY" ]]; then
 fi
 "$BT/apksigner" sign --ks "$KEY" --ks-key-alias "$ALIAS" --ks-pass env:SAFI_KEY_PASS --key-pass env:SAFI_KEY_PASS \
  --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false \
- --out "$WORK/Safi-1.0.apk" "$WORK/aligned.apk"
-"$BT/apksigner" verify --verbose --print-certs "$WORK/Safi-1.0.apk"
-"$BT/zipalign" -c -v 4 "$WORK/Safi-1.0.apk" | tail -1
-sha256sum "$WORK/Safi-1.0.apk"
-echo "Built: $WORK/Safi-1.0.apk"
+ --out "$WORK/Safi-$VERSION_NAME.apk" "$WORK/aligned.apk"
+"$BT/apksigner" verify --verbose --print-certs "$WORK/Safi-$VERSION_NAME.apk"
+"$BT/zipalign" -c -v 4 "$WORK/Safi-$VERSION_NAME.apk" | tail -1
+sha256sum "$WORK/Safi-$VERSION_NAME.apk"
+echo "Built: $WORK/Safi-$VERSION_NAME.apk"

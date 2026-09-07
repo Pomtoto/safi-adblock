@@ -1,4 +1,6 @@
 plugins { id 'com.android.application' }
+def safiVersion = new Properties()
+file('version.properties').withInputStream { safiVersion.load(it) }
 android {
     namespace 'app.safi.shield'
     compileSdk 35
@@ -6,8 +8,8 @@ android {
         applicationId 'app.safi.shield'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '1.0.0'
+        versionCode safiVersion.getProperty('versionCode').toInteger()
+        versionName safiVersion.getProperty('versionName')
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8

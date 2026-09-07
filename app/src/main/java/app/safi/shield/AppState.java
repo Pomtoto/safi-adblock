@@ -3,6 +3,7 @@ package app.safi.shield;
 
 import android.content.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class AppState {
     public static final int OFF=0,STARTING=1,ON=2,STOPPING=3,ERROR=4;
@@ -10,6 +11,8 @@ public final class AppState {
     public static volatile String message="";
     public static volatile long startedAt,lastSuccess,lastFailure;
     public static final AtomicLong requests=new AtomicLong(),blocked=new AtomicLong(),errors=new AtomicLong();
+    public static final DiagnosticRecorder diagnostics=new DiagnosticRecorder(android.os.SystemClock::elapsedRealtime);
+    public static final AtomicBoolean listUpdating=new AtomicBoolean();
     private static boolean initialized;
     public static synchronized void init(Context c){
         if(initialized)return;initialized=true;SharedPreferences p=AppPrefs.get(c);

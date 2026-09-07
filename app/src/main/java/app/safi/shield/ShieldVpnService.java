@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.*;
 
 public final class ShieldVpnService extends VpnService {
     public static final String START="app.safi.shield.START",STOP="app.safi.shield.STOP",RESTART="app.safi.shield.RESTART";
+    public static final String STOP_DIAGNOSTICS="app.safi.shield.STOP_DIAGNOSTICS";
     private static final String CHANNEL="safi_protection";
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService control=Executors.newSingleThreadExecutor();
@@ -23,7 +24,7 @@ public final class ShieldVpnService extends VpnService {
     private final Object engineLock=new Object();
     private Engine engine;
     private final Runnable pulse=new Runnable(){public void run(){
-        AppState.save(ShieldVpnService.this);
+        AppState.diagnostics.expire();AppState.save(ShieldVpnService.this);
         if(AppState.state==AppState.ON||AppState.state==AppState.STARTING){
             getSystemService(NotificationManager.class).notify(21,notification());main.postDelayed(this,5000);
         }
@@ -39,9 +40,17 @@ public final class ShieldVpnService extends VpnService {
         PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,ShieldVpnService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         String detail=AppState.state==AppState.STARTING?"جارٍ تجهيز قائمة الحجب…":String.format(Locale.US,"طلبات محجوبة: %,d • VPN محلي فقط",AppState.blocked.get());
         if(AppState.lastFailure>AppState.lastSuccess)detail="تعذّر الوصول إلى DNS؛ افحص الإنترنت أو أوقف الحماية";
-        return new Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_shield).setContentTitle("صافي • حجب الإعلانات")
+        boolean diagnostic=AppState.diagnostics.isRecording();
+        if(diagnostic)detail="فحص DNS اختياري نشط؛ تُسجّل أسماء النطاقات مؤقتًا في الذاكرة";
+        Notification.Builder note=new Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_shield)
+                .setContentTitle(diagnostic?"صافي • فحص DNS مؤقت":"صافي • حجب الإعلانات")
                 .setContentText(detail).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
-                .setCategory(Notification.CATEGORY_SERVICE).addAction(new Notification.Action.Builder(null,"إيقاف",stop).build()).build();
+                .setCategory(Notification.CATEGORY_SERVICE).addAction(new Notification.Action.Builder(null,"إيقاف الحماية",stop).build());
+        if(diagnostic){
+            PendingIntent finish=PendingIntent.getService(this,3,new Intent(this,ShieldVpnService.class).setAction(STOP_DIAGNOSTICS),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+            note.addAction(new Notification.Action.Builder(null,"إيقاف الفحص",finish).build());
+        }
+        return note.build();
     }
     private void foreground(){
         if(Build.VERSION.SDK_INT>=34)startForeground(21,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
@@ -49,6 +58,12 @@ public final class ShieldVpnService extends VpnService {
     }
     public int onStartCommand(Intent intent,int flags,int startId){
         String action=intent==null?STOP:intent.getAction();
+        if(STOP_DIAGNOSTICS.equals(action)){
+            AppState.diagnostics.stop();
+            if(AppState.state==AppState.ON||AppState.state==AppState.STARTING)getSystemService(NotificationManager.class).notify(21,notification());
+            else stopSelf(startId);
+            return START_NOT_STICKY;
+        }
         if(STOP.equals(action)){stopRequested(startId,false);return START_NOT_STICKY;}
         if(!START.equals(action)&&!RESTART.equals(action)){stopRequested(startId,false);return START_NOT_STICKY;}
         if(START.equals(action)&&(AppState.state==AppState.ON||AppState.state==AppState.STARTING))return START_NOT_STICKY;
@@ -94,6 +109,7 @@ public final class ShieldVpnService extends VpnService {
         AppState.state=AppState.ERROR;stopRequested(0,true);
     }
     private void stopRequested(int startId,boolean error){
+        AppState.diagnostics.clear();
         int token=generation.incrementAndGet();
         if(!error)AppState.state=AppState.STOPPING;
         main.removeCallbacks(pulse);
@@ -109,7 +125,7 @@ public final class ShieldVpnService extends VpnService {
     private void stopEngine(){Engine old;synchronized(engineLock){old=engine;engine=null;}if(old!=null)old.close();}
     public void onRevoke(){AppState.message="أوقف أندرويد اتصال VPN. يمكنك تشغيله من جديد.";stopRequested(0,false);super.onRevoke();}
     public void onDestroy(){
-        generation.incrementAndGet();main.removeCallbacksAndMessages(null);stopEngine();control.shutdownNow();
+        AppState.diagnostics.clear();generation.incrementAndGet();main.removeCallbacksAndMessages(null);stopEngine();control.shutdownNow();
         AppState.save(this);if(AppState.state!=AppState.ERROR)AppState.state=AppState.OFF;
         stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();
     }
@@ -140,6 +156,8 @@ public final class ShieldVpnService extends VpnService {
                 public void blocked(){if(alive)AppState.blocked.incrementAndGet();}
                 public void error(){if(alive){AppState.errors.incrementAndGet();AppState.lastFailure=SystemClock.elapsedRealtime();}}
                 public void upstreamOk(){if(alive)AppState.lastSuccess=SystemClock.elapsedRealtime();}
+                public long diagnosticTicket(){return alive?AppState.diagnostics.ticket():0;}
+                public void diagnostic(long ticket,String host,int status){if(alive)AppState.diagnostics.record(ticket,host,status);}
             });
             tcp=new TcpDnsProxy(this::write,this::submit);
         }
