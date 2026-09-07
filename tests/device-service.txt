@@ -1,0 +1,25 @@
+ACTIVITY MANAGER SERVICES (dumpsys activity services)
+  User 0 active services:
+  * ServiceRecord{c9583eb u0 app.safi.shield/.ShieldVpnService}
+    intent={act=app.safi.shield.START cmp=app.safi.shield/.ShieldVpnService}
+    packageName=app.safi.shield
+    processName=app.safi.shield
+    permission=android.permission.BIND_VPN_SERVICE
+    baseDir=/data/app/app.safi.shield-_wQCvzAvHjHXPqeZjj5pdg==/base.apk
+    dataDir=/data/user/0/app.safi.shield
+    app=ProcessRecord{c47659d 2988:app.safi.shield/u0a67}
+    isForeground=true foregroundId=21 foregroundNoti=Notification(channel=safi_protection pri=0 contentView=null vibrate=null sound=null defaults=0x0 flags=0x6a color=0x00000000 category=service actions=1 vis=PRIVATE)
+    createTime=-3m25s944ms startingBgTimeout=--
+    lastActivity=-3m1s515ms restartTime=-3m25s940ms createdFromFg=true
+    startRequested=true delayedStop=false stopIfKilled=true callStart=true lastStartId=1
+    Bindings:
+    * IntentBindRecord{f87d5d1 CREATE}:
+      intent={act=android.net.VpnService cmp=app.safi.shield/.ShieldVpnService}
+      binder=android.os.BinderProxy@a1e836
+      requested=true received=true hasBound=true doRebind=false
+      * Client AppBindRecord{9748337 ProcessRecord{faf1341 1707:system/1000}}
+        Per-process Connections:
+          ConnectionRecord{9aa9877 u0 CR FGS app.safi.shield/.ShieldVpnService:@6ba0a76}
+    All Connections:
+      ConnectionRecord{9aa9877 u0 CR FGS app.safi.shield/.ShieldVpnService:@6ba0a76}
+

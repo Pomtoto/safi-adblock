@@ -1,0 +1,5 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStorePassword=changeit
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStorePassword=changeit
+Bundled list: 36608 domains
+Live Cloudflare DoH: PASS (default TLS verification, wire-format POST)
+PASS: 65 assertions + 4000 malformed-packet fuzz cases

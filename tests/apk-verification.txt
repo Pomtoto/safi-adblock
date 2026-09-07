@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=Safi Local Build, O=Safi, C=IQ
+Signer #1 certificate SHA-256 digest: 64d348b08d017ea23d9f54b667b7ca4938d93ab7080d19d74b7c75d60a114c99
+Signer #1 certificate SHA-1 digest: 5afe993862958124be81ba366729ce8aba28547b
+Signer #1 certificate MD5 digest: 502b5ba7db2a94171d5326a281f5a7e9
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 3072
+Signer #1 public key SHA-256 digest: ff5c19eeb807450d5776b81d2f1ea2b84677ccda6a7547c852df2f5a6d353c7c
+Signer #1 public key SHA-1 digest: d91cab26bd7e23c07bb573a4708bec050fb47f57
+Signer #1 public key MD5 digest: 349ea17c4bf19030dfaecc8906d49aad

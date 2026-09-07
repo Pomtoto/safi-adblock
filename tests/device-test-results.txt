@@ -1,0 +1,28 @@
+--------- beginning of main
+--------- beginning of system
+--------- beginning of crash
+I/SafiProbe( 3221): Safi device probe — separate application UID
+I/SafiProbe( 3221): FAIL UDP A blocked locally: SocketTimeoutException Poll timed out
+I/SafiProbe( 3221): PASS UDP AAAA blocked locally
+I/SafiProbe( 3221): PASS UDP allowed domain via DoH
+I/SafiProbe( 3221): PASS TCP blocked domain
+I/SafiProbe( 3221): PASS TCP allowed domain
+I/SafiProbe( 3221): DNSKEY response bytes: 593
+I/SafiProbe( 3221): PASS TCP DNSKEY records
+I/SafiProbe( 3221): PASS Android system resolver blocks ads
+I/SafiProbe( 3221): PASS Android system resolver allows normal domain
+I/SafiProbe( 3221): DEVICE TESTS COMPLETE: 7 passed, 1 failed
+I/SafiProbe( 3278): Safi device probe — separate application UID
+I/SafiProbe( 3278): PASS UDP A blocked locally
+I/SafiProbe( 3278): PASS UDP AAAA blocked locally
+I/SafiProbe( 3278): PASS UDP allowed domain via DoH
+I/SafiProbe( 3278): PASS TCP blocked domain
+I/SafiProbe( 3278): PASS TCP allowed domain
+I/SafiProbe( 3278): DNSKEY response bytes: 593
+I/SafiProbe( 3278): PASS TCP DNSKEY records
+I/SafiProbe( 3278): PASS Android system resolver blocks ads
+I/SafiProbe( 3278): PASS Android system resolver allows normal domain
+I/SafiProbe( 3278): DEVICE TESTS COMPLETE: 8 passed, 0 failed
+I/SafiProbe( 3376): Safi device probe — separate application UID
+I/SafiProbe( 3376): PASS system DNS works without filtering
+I/SafiProbe( 3376): DEVICE TESTS COMPLETE: 1 passed, 0 failed

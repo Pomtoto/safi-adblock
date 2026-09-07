@@ -1,0 +1,2 @@
+Bundled list: 36608 domains
+PASS: 64 assertions + 4000 malformed-packet fuzz cases

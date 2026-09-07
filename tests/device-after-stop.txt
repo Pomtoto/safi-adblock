@@ -1,0 +1,4 @@
+After tapping the in-app Stop button:
+- dumpsys activity services app.safi.shield: (nothing)
+- No route to 10.111.222.2 remained in dumpsys connectivity.
+- Separate-UID probe resolved the ad domain through the normal system resolver.
