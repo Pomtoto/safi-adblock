@@ -1,5 +1,5 @@
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+    <style name="BaseAppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#C7F58A</item>
         <item name="android:windowLightStatusBar">false</item>
@@ -7,6 +7,7 @@
         <item name="android:navigationBarColor">#101817</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowBackground">#101817</item>
-        <item name="android:windowLightNavigationBar">false</item>
     </style>
+    <!-- API 26 must not reference windowLightNavigationBar (introduced in API 27). -->
+    <style name="AppTheme" parent="BaseAppTheme" />
 </resources>
