@@ -134,9 +134,10 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    # New job, not yet validated by a real run. It reports signal but must never block
-    # a release until someone reviews its first result and removes this flag.
-    continue-on-error: true
+    # Validated by a real run: the tunnel came up and the separate-UID probe passed all
+    # eight checks on API 34. Left blocking on purpose, so a future regression in the
+    # DNS path cannot slip through a green build. Restore continue-on-error if the
+    # emulator turns out to be flaky on hosted runners.
     if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.run_device_probe)
     steps:
       - name: Check out source
@@ -234,7 +235,7 @@ jobs:
           نزّل ملف `Safi-*-github.apk` من Assets وثبّته على أندرويد 8 أو أحدث.
           الملف موقّع بنفس شهادة النسخة الأصلية؛ الروت غير مطلوب ولا يطلب التطبيق صلاحياته.
 
-          هذه نسخة تجريبية. نجح البناء والاختبارات الآلية في GitHub، ونجاح البناء وحده لا يعني أنها اختُبرت على كل هاتف.
+          هذه نسخة تجريبية. نجح البناء والاختبارات الآلية في GitHub، ونجح أيضًا فحص المحاكي عبر UID منفصل (8 اختبارات: حجب UDP/TCP، والنطاقات المسموحة، ومُحلِّل النظام). نجاح البناء والفحص لا يعني أنها اختُبرت على كل هاتف.
           يحجب التطبيق مصادر الإعلانات عبر DNS، ولا يضمن إزالة إعلانات يوتيوب أو إعلانات نفس نطاق المحتوى.
           لا يعمل مع VPN آخر، ولا تفعّل معه «حظر الاتصالات بدون VPN».
 
