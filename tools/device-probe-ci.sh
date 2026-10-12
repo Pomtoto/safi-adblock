@@ -29,6 +29,8 @@ screen_size() {
 }
 
 dump_ui() {
+    # Delete first: if the dump fails we must not analyse the previous screen.
+    adb shell rm -f /sdcard/safi-ui.xml >/dev/null 2>&1 || true
     adb shell uiautomator dump /sdcard/safi-ui.xml >/dev/null 2>&1 || return 1
     adb pull /sdcard/safi-ui.xml "$TMP/ui.xml" >/dev/null 2>&1 || return 1
     [ -s "$TMP/ui.xml" ]
@@ -99,9 +101,15 @@ tap_label() {
 }
 
 # A real tunnel, not just the VpnNetworkProvider entry that is always listed.
+# Note: the service record prints the name and `isForeground=true` on separate lines, so
+# each fact needs its own match - asking for both on one line never matched anything.
 vpn_up() {
-    adb shell dumpsys activity services app.safi.shield 2>/dev/null | grep -q 'ShieldVpnService.*isForeground=true\|isForeground=true.*ShieldVpnService' \
-        && adb shell dumpsys connectivity 2>/dev/null | grep -qiE 'ni\{VPN|Transports: VPN'
+    local services
+    services="$(adb shell dumpsys activity services app.safi.shield 2>/dev/null || true)"
+    case "$services" in *ShieldVpnService*) ;; *) return 1 ;; esac
+    case "$services" in *isForeground=true*) ;; *) return 1 ;; esac
+    adb shell dumpsys connectivity 2>/dev/null | grep -q 'ni{VPN' || return 1
+    return 0
 }
 
 dump_state() {
