@@ -113,15 +113,22 @@ public final class HardeningTests {
         public InputStream getInputStream() throws IOException { return new ByteArrayInputStream(harness.responder.apply(request.toByteArray())); }
     }
 
+    /**
+     * Callbacks arrive from several worker threads at once (that is the whole point of
+     * coalescing), so the counters must be atomic. Plain int fields lost updates here and
+     * made this test fail on a fast CI machine while passing locally.
+     */
     static final class Events implements DohResolver.Events {
-        int queries, blocked, errors, ok, failures, coalesced;
-        final List<Long> latencies = new ArrayList<>();
-        public void request() { queries++; }
-        public void blocked() { blocked++; }
-        public void error() { errors++; }
-        public void upstreamOk() { ok++; }
-        public void upstreamFailed(long ms) { failures++; }
-        public void coalesced() { coalesced++; }
+        final AtomicInteger queries = new AtomicInteger(), blocked = new AtomicInteger(),
+                errors = new AtomicInteger(), ok = new AtomicInteger(),
+                failures = new AtomicInteger(), coalesced = new AtomicInteger();
+        final List<Long> latencies = Collections.synchronizedList(new ArrayList<>());
+        public void request() { queries.incrementAndGet(); }
+        public void blocked() { blocked.incrementAndGet(); }
+        public void error() { errors.incrementAndGet(); }
+        public void upstreamOk() { ok.incrementAndGet(); }
+        public void upstreamFailed(long ms) { failures.incrementAndGet(); }
+        public void coalesced() { coalesced.incrementAndGet(); }
         public void latency(long ms) { latencies.add(ms); }
     }
 
@@ -181,8 +188,8 @@ public final class HardeningTests {
             pool.shutdown();
             check(ids.size() == threads, "every caller keeps its own query ID");
             check(harness.totalCalls() == 1, "identical in-flight question hits upstream once, got " + harness.totalCalls());
-            check(events.coalesced == threads - 1, "coalesced events reported");
-            check(events.queries == threads && events.errors == 0, "counters stay honest");
+            check(events.coalesced.get() == threads - 1, "coalesced events reported");
+            check(events.queries.get() == threads && events.errors.get() == 0, "counters stay honest");
 
             byte[] other = resolver.resolve(DnsCodec.query("other.example", 1, 7));
             check(harness.totalCalls() == 2, "different names are not merged");
@@ -206,8 +213,8 @@ public final class HardeningTests {
             for (int i = 0; i < 5; i++) resolver.resolve(DnsCodec.query("c" + i + ".example", 1, i + 3));
             check(single.totalCalls() == 2, "open breaker stops paying a timeout per lookup, calls=" + single.totalCalls());
             check(one.openEndpoints() == 1, "dead endpoint reported as open");
-            check(events.failures >= 7, "every failed lookup reported to the app");
-            check(events.errors >= 7, "failed lookups counted");
+            check(events.failures.get() >= 7, "every failed lookup reported to the app");
+            check(events.errors.get() >= 7, "failed lookups counted");
 
             single.clock.ms += DohResolver.HttpsTransport.OPEN_BASE_MS + 1;
             resolver.resolve(DnsCodec.query("probe.example", 1, 99));
@@ -251,8 +258,8 @@ public final class HardeningTests {
             byte[] reply = resolver.resolve(DnsCodec.query("slow.example", 1, 5));
             check((DnsCodec.u16(reply, 2) & 15) == 2, "failing resolver returns SERVFAIL");
             check(harness.totalCalls() == 1, "time budget stops the fan-out, attempts=" + harness.totalCalls());
-            check(events.failures >= 1, "transport failure reported to the app");
-            check(events.errors >= 1, "hard failure counted");
+            check(events.failures.get() >= 1, "transport failure reported to the app");
+            check(events.errors.get() >= 1, "hard failure counted");
 
             long after = harness.totalCalls();
             resolver.resolve(DnsCodec.query("slow.example", 1, 6));
@@ -331,7 +338,7 @@ public final class HardeningTests {
             check(DnsCodec.u16(udp, 0) == 77, "overload reply keeps the query ID");
             byte[] tcp = resolver.overloadedTcp(query);
             check((DnsCodec.u16(tcp, 2) & 15) == 2, "TCP overload is an honest SERVFAIL");
-            check(events.errors == 2 && events.queries == 2, "overload counted as an error");
+            check(events.errors.get() == 2 && events.queries.get() == 2, "overload counted as an error");
         }
     }
 
