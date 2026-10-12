@@ -6,6 +6,7 @@ import android.content.*;
 import android.content.pm.ServiceInfo;
 import android.net.*;
 import android.os.*;
+import android.provider.Settings;
 import android.system.*;
 import java.io.*;
 import java.net.*;
@@ -18,19 +19,25 @@ public final class ShieldVpnService extends VpnService {
     public static final String START="app.safi.shield.START",STOP="app.safi.shield.STOP",RESTART="app.safi.shield.RESTART";
     public static final String STOP_DIAGNOSTICS="app.safi.shield.STOP_DIAGNOSTICS";
     private static final String CHANNEL="safi_protection";
+    /** Distinct lookups run in parallel; identical ones are coalesced before they get here. */
+    private static final int WORKERS=12, QUEUE=128, CHECKPOINT_SECONDS=60;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService control=Executors.newSingleThreadExecutor();
     private final AtomicInteger generation=new AtomicInteger();
     private final Object engineLock=new Object();
     private Engine engine;
+    private long lastCheckpoint;
     private final Runnable pulse=new Runnable(){public void run(){
-        AppState.diagnostics.expire();AppState.save(ShieldVpnService.this);
+        AppState.diagnostics.expire();
+        long now=SystemClock.elapsedRealtime();
+        // Counters are cheap to keep in memory; writing them to disk every few seconds is not.
+        if(now-lastCheckpoint>=CHECKPOINT_SECONDS*1000L){lastCheckpoint=now;AppState.save(ShieldVpnService.this);}
         if(AppState.state==AppState.ON||AppState.state==AppState.STARTING){
             getSystemService(NotificationManager.class).notify(21,notification());main.postDelayed(this,5000);
         }
     }};
     public void onCreate(){
-        super.onCreate();AppState.init(this);
+        super.onCreate();AppState.init(this);CrashLog.install(getApplicationContext());
         NotificationChannel channel=new NotificationChannel(CHANNEL,"حماية صافي",NotificationManager.IMPORTANCE_LOW);
         channel.setDescription("إشعار دائم أثناء تشغيل حاجب DNS، مع زر الإيقاف");channel.setSound(null,null);channel.enableVibration(false);
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
@@ -39,9 +46,12 @@ public final class ShieldVpnService extends VpnService {
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,ShieldVpnService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         String detail=AppState.state==AppState.STARTING?"جارٍ تجهيز قائمة الحجب…":String.format(Locale.US,"طلبات محجوبة: %,d • VPN محلي فقط",AppState.blocked.get());
-        if(AppState.lastFailure>AppState.lastSuccess)detail="تعذّر الوصول إلى DNS؛ افحص الإنترنت أو أوقف الحماية";
+        if(AppState.state==AppState.ON)detail=detail+" • "+AppState.upstreamState();
+        if(AppState.lastFailure>AppState.lastSuccess&&AppState.state==AppState.ON)detail="تعذّر الوصول إلى DNS؛ افحص الإنترنت أو أوقف الحماية";
+        if(AppState.lockdown)detail="أوقف «حظر الاتصالات بدون VPN» وإلا ستتعطّل بقية الاتصالات";
         boolean diagnostic=AppState.diagnostics.isRecording();
-        if(diagnostic)detail="فحص DNS اختياري نشط؛ تُسجّل أسماء النطاقات مؤقتًا في الذاكرة";
+        if(diagnostic&&!AppState.lockdown)detail="فحص DNS اختياري نشط؛ تُسجّل أسماء النطاقات مؤقتًا في الذاكرة";
+        String provider=AppPrefs.provider(this).label;
         Notification.Builder note=new Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_shield)
                 .setContentTitle(diagnostic?"صافي • فحص DNS مؤقت":"صافي • حجب الإعلانات")
                 .setContentText(detail).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
@@ -50,6 +60,7 @@ public final class ShieldVpnService extends VpnService {
             PendingIntent finish=PendingIntent.getService(this,3,new Intent(this,ShieldVpnService.class).setAction(STOP_DIAGNOSTICS),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             note.addAction(new Notification.Action.Builder(null,"إيقاف الفحص",finish).build());
         }
+        note.setSubText(provider);
         return note.build();
     }
     private void foreground(){
@@ -57,7 +68,8 @@ public final class ShieldVpnService extends VpnService {
         else startForeground(21,notification());
     }
     public int onStartCommand(Intent intent,int flags,int startId){
-        String action=intent==null?STOP:intent.getAction();
+        // A null intent means Android itself is starting us: always-on VPN or a system restart.
+        String action=intent==null?START:intent.getAction();
         if(STOP_DIAGNOSTICS.equals(action)){
             AppState.diagnostics.stop();
             if(AppState.state==AppState.ON||AppState.state==AppState.STARTING)getSystemService(NotificationManager.class).notify(21,notification());
@@ -98,10 +110,18 @@ public final class ShieldVpnService extends VpnService {
                     if(token!=generation.get()){next.close();return;}
                     engine=next;next.start();
                 }
-                main.post(() -> {if(token==generation.get()){AppState.state=AppState.ON;AppState.message="";getSystemService(NotificationManager.class).notify(21,notification());}});
+                AppState.lockdown=lockdownEnabled(this);
+                main.post(() -> {if(token==generation.get()){AppState.state=AppState.ON;AppState.message="";getSystemService(NotificationManager.class).notify(21,notification());SafiTileService.requestRefresh(this);}});
             }catch(Exception e){main.post(() -> fail(token));}
         });
-        return START_NOT_STICKY;
+        // START_STICKY: if the system kills the process we want protection back, and a restart
+        // arrives as a null intent, which is handled as START above.
+        return START_STICKY;
+    }
+    /** True when Android is blocking every connection that our DNS-only VPN does not carry. */
+    static boolean lockdownEnabled(Context context){
+        try{return Settings.Secure.getInt(context.getContentResolver(),"always_on_vpn_lockdown",0)==1;}
+        catch(RuntimeException e){return false;}
     }
     private void fail(int token){
         if(token!=generation.get())return;
@@ -109,7 +129,7 @@ public final class ShieldVpnService extends VpnService {
         AppState.state=AppState.ERROR;stopRequested(0,true);
     }
     private void stopRequested(int startId,boolean error){
-        AppState.diagnostics.clear();
+        AppState.diagnostics.clear();AppState.lockdown=false;AppState.openEndpoints=0;
         int token=generation.incrementAndGet();
         if(!error)AppState.state=AppState.STOPPING;
         main.removeCallbacks(pulse);
@@ -119,6 +139,7 @@ public final class ShieldVpnService extends VpnService {
                 if(token!=generation.get())return;
                 if(!error){AppState.state=AppState.OFF;AppState.message="";}
                 stopForeground(STOP_FOREGROUND_REMOVE);if(startId>0)stopSelf(startId);else stopSelf();
+                SafiTileService.requestRefresh(this);
             });
         });
     }
@@ -127,7 +148,7 @@ public final class ShieldVpnService extends VpnService {
     public void onDestroy(){
         AppState.diagnostics.clear();generation.incrementAndGet();main.removeCallbacksAndMessages(null);stopEngine();control.shutdownNow();
         AppState.save(this);if(AppState.state!=AppState.ERROR)AppState.state=AppState.OFF;
-        stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();
+        stopForeground(STOP_FOREGROUND_REMOVE);SafiTileService.requestRefresh(this);super.onDestroy();
     }
     private Network underlying(){
         ConnectivityManager cm=getSystemService(ConnectivityManager.class);Network active=cm.getActiveNetwork(),best=null;int score=-1;
@@ -142,30 +163,50 @@ public final class ShieldVpnService extends VpnService {
     private final class Engine implements AutoCloseable {
         private final ParcelFileDescriptor tun;private final FileInputStream input;private final FileOutputStream output;
         private final Object outputLock=new Object();private final int token;
-        private final ThreadPoolExecutor workers=new ThreadPoolExecutor(8,8,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(64));
+        private final ThreadPoolExecutor workers=new ThreadPoolExecutor(WORKERS,WORKERS,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(QUEUE));
         private final DohResolver resolver;private final TcpDnsProxy tcp;
-        private volatile boolean alive=true;private Thread reader;
+        private volatile boolean alive=true;private Thread reader;private Thread probe;
         private final AtomicBoolean fault=new AtomicBoolean();
         Engine(ParcelFileDescriptor tun,DomainRules rules,int token){
             this.tun=tun;this.token=token;input=new FileInputStream(tun.getFileDescriptor());output=new FileOutputStream(tun.getFileDescriptor());
-            DohResolver.HttpsTransport transport=new DohResolver.HttpsTransport(url -> {
+            workers.allowCoreThreadTimeOut(true);
+            DnsProvider provider=AppPrefs.provider(ShieldVpnService.this);
+            DohResolver.HttpsTransport transport=new DohResolver.HttpsTransport(provider,url -> {
                 Network net=underlying();return (HttpsURLConnection)(net==null?url.openConnection():net.openConnection(url));
-            });
+            },() -> System.nanoTime()/1000000L);
             resolver=new DohResolver(rules,transport,new DohResolver.Events(){
                 public void request(){if(alive)AppState.requests.incrementAndGet();}
                 public void blocked(){if(alive)AppState.blocked.incrementAndGet();}
                 public void error(){if(alive){AppState.errors.incrementAndGet();AppState.lastFailure=SystemClock.elapsedRealtime();}}
                 public void upstreamOk(){if(alive)AppState.lastSuccess=SystemClock.elapsedRealtime();}
+                public void latency(long ms){if(alive)AppState.lastLatency=ms;}
+                public void coalesced(){if(alive)AppState.coalesced.incrementAndGet();}
+                public void upstreamFailed(long ms){if(alive)AppState.lastFailure=SystemClock.elapsedRealtime();}
                 public long diagnosticTicket(){return alive?AppState.diagnostics.ticket():0;}
                 public void diagnostic(long ticket,String host,int status){if(alive)AppState.diagnostics.record(ticket,host,status);}
             });
-            tcp=new TcpDnsProxy(this::write,this::submit);
+            tcp=new TcpDnsProxy(this::write,(query,answer)->submit(query,true,answer));
         }
-        void start(){reader=new Thread(this::loop,"Safi-DNS");reader.start();}
-        void submit(byte[] query,TcpDnsProxy.Answer answer){
+        void start(){
+            reader=new Thread(this::loop,"Safi-DNS");reader.start();
+            probe=new Thread(this::watchUpstream,"Safi-Upstream");probe.setDaemon(true);probe.start();
+        }
+        /** Surfaces the upstream health the resolver already tracks, once every few seconds. */
+        private void watchUpstream(){
+            while(alive){
+                try{Thread.sleep(4000);}catch(InterruptedException e){Thread.currentThread().interrupt();return;}
+                if(!alive)return;
+                AppState.openEndpoints=resolver.openEndpoints();
+            }
+        }
+        void submit(byte[] query,boolean tcpClient,TcpDnsProxy.Answer answer){
             if(!alive)return;
             try{workers.execute(() -> {byte[] response=resolver.resolve(query);if(alive)answer.accept(response);});}
-            catch(RejectedExecutionException e){if(alive)answer.accept(resolver.overloaded(query));}
+            catch(RejectedExecutionException e){
+                // Queue full: a truncated reply makes a UDP client retry over TCP instead of
+                // showing the user a permanent DNS failure.
+                if(alive)answer.accept(tcpClient?resolver.overloadedTcp(query):resolver.overloadedUdp(query));
+            }
         }
         void write(byte[] packet){
             synchronized(outputLock){if(!alive)return;try{output.write(packet);}catch(IOException e){broken();}}
@@ -191,7 +232,7 @@ public final class ShieldVpnService extends VpnService {
                         continue;
                     }
                     if(packet.protocol==IpPacket.UDP){
-                        submit(packet.payload,answer -> {
+                        submit(packet.payload,false,answer -> {
                             byte[] data=answer.length>DnsCodec.udpLimit(packet.payload)?DnsCodec.truncated(packet.payload):answer;
                             write(packet.udpReply(data));
                         });

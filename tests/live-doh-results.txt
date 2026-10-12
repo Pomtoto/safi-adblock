@@ -3,3 +3,15 @@ Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cace
 Bundled list: 36608 domains
 Live Cloudflare DoH: PASS (default TLS verification, wire-format POST)
 PASS: 65 assertions + 4000 malformed-packet fuzz cases
+
+=== 1.2.0 (2026-10-12) — live provider verification through the app's own transport ===
+$ JAVA_TOOL_OPTIONS='-Djavax.net.ssl.trustStore=<current Debian CA store>' bash tools/test-core.sh --live
+Bundled list: 36608 domains
+Live Cloudflare DoH: PASS (default TLS verification, wire-format POST)
+PASS: 65 assertions + 4000 malformed-packet fuzz cases
+Profile tests: LIGHT 36608, NORMAL 191639 bundled domains
+PASS: 31 diagnostics/privacy/profile assertions
+LIVE cloudflare: 202 ms, 61 bytes, validation passed
+LIVE adguard: 241 ms, 61 bytes, validation passed
+LIVE google: 54 ms, 61 bytes, validation passed
+PASS: 121 hardening assertions (coalescing, breaker, budget, pooling, negative cache, list formats)

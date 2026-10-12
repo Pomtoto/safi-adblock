@@ -2,4 +2,6 @@ Safi © 2026 Safi contributors
 App source: GPL-3.0-only, without warranty.
 HaGeZi Multi LIGHT: GPL-3.0; original data and source metadata included.
 Gradle Wrapper: Copyright Gradle contributors; Apache-2.0.
-This is an independent app, not endorsed by the DNS or blocklist providers.
+This is an independent app, not endorsed by any DNS provider or by the blocklist project.
+Provider names (Cloudflare, AdGuard, Google) are trademarks of their owners and are used only
+to describe the endpoints the user may choose between.
