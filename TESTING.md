@@ -1,6 +1,22 @@
-# Validation record — Safi 1.0.0
+# Validation record — Safi 1.2.0 (current)
 
-This record describes the original direct-SDK APK identified below. Later GitHub CI builds have their own run reports and BUILD-INFO.txt; see [CI.md](CI.md).
+Scope and full evidence for the hardening release are in [`tests/UPDATE-1.2.md`](tests/UPDATE-1.2.md). Summary of what was actually executed:
+
+| Check | Result |
+|---|---|
+| `bash tools/test-core.sh` | PASS — 64 + 31 + 115 assertions, plus 4,000 malformed DNS/IP inputs |
+| `bash tools/test-core.sh --live` | PASS — 121 assertions, including real TLS DoH calls to all three offered providers (Cloudflare, AdGuard DNS, Google) from the app's own transport |
+| Provider endpoint survey | Quad9 and Mullvad answer only over HTTP/2, so they are **not** offered; the three shipped providers were verified over HTTP/1.1 with certificate and hostname verification on |
+| `bash tools/build-apk.sh` (AAPT2 → javac → D8 → zipalign → apksigner) | PASS — `artifacts/Safi-1.2.0.apk`, v2+v3 signatures verified, ZIP aligned |
+| `./gradlew :app:assembleRelease` (R8 + resource shrinking) | PASS |
+| `./gradlew :app:lintRelease` | PASS — 0 errors, 20 minor warnings. Five real errors were found and fixed during this work (API 29 `Tile#setSubtitle`, deprecated `startActivityAndCollapse(Intent)`, `getSystemService("statusbar")`) |
+| List parsing against the bundled HaGeZi LIGHT list | PASS — still exactly 36,608 domains, 0 unparsable rows |
+
+**Not validated in 1.2.0:** no phone or emulator run was possible in the environment used for this work. Always-on behaviour, the Quick Settings tile, the local crash log, the extra-list dialogs and the "block connections without VPN" warning all need a device test. The emulator job added to GitHub Actions is new and has not been run yet; it is marked `continue-on-error` so it cannot block a release, and its first result must be reviewed by a human. IPv6 endpoints were not exercised (the verification environment has no IPv6). Performance, battery and memory figures were not measured on real hardware.
+
+# Validation record — Safi 1.0.0 (historical)
+
+This record describes the original direct-SDK APK identified below. Later GitHub CI builds have their own run reports and BUILD-INFO.txt; see [CI.md](CI.md). And this record has an update in **Update 1.2.0**.
 
 Date: 2026-09-07. This is an experimental, sideloadable build, not a production certification or guarantee for every Android device or ad network.
 

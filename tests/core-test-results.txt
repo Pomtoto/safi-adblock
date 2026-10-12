@@ -1,2 +1,9 @@
 Bundled list: 36608 domains
 PASS: 64 assertions + 4000 malformed-packet fuzz cases
+
+=== 1.2.0 (2026-10-12) — after the hardening update ===
+$ java -Xmx160m -cp <build> app.safi.shield.CoreTests <bundled light list>
+Bundled list: 36608 domains
+PASS: 64 assertions + 4000 malformed-packet fuzz cases
+PASS: 31 diagnostics/privacy/profile assertions
+PASS: 115 hardening assertions (coalescing, breaker, budget, pooling, negative cache, list formats)

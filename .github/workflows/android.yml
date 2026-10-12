@@ -8,6 +8,11 @@ name: Android APK
         type: boolean
         required: true
         default: true
+      run_device_probe:
+        description: "تشغيل مهمة المحاكي (تجريبية، لا توقف النشر)"
+        type: boolean
+        required: true
+        default: true
   push:
     branches: [main]
     paths:
@@ -17,9 +22,8 @@ name: Android APK
       - "gradlew.bat"
       - "*.gradle"
       - "gradle.properties"
-      - "tools/build-ci.sh"
-      - "tools/test-core.sh"
-      - "tests/CoreTests.java"
+      - "tools/**"
+      - "tests/**"
       - ".github/workflows/android.yml"
 
 permissions:
@@ -122,7 +126,111 @@ jobs:
             echo 'الملف بنفس شهادة توقيع النسخة الأصلية. مصدر البناء موجود في هذا الالتزام:'
             echo "\`$GITHUB_SHA\`"
             echo
-            echo 'الاختبارات آلية؛ هذا البناء لا يضيف اختبارًا على هاتف فعلي.'
+            echo 'الاختبارات آلية؛ مهمة المحاكي (إن نجحت) تضيف تحققًا تشغيليًا، لكنها لا تغني عن اختبار هاتفك.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  device:
+    name: Emulator smoke test (DNS filtering)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    # New job, not yet validated by a real run. It reports signal but must never block
+    # a release until someone reviews its first result and removes this flag.
+    continue-on-error: true
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.run_device_probe)
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the APK built by the previous job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Safi-Android
+          path: release-output
+          digest-mismatch: error
+
+      - name: Set up Java 17
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install SDK tools used by the probe build
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMANAGER" "platforms;android-$ANDROID_COMPILE_SDK" "build-tools;$ANDROID_BUILD_TOOLS" "platform-tools"
+          chmod +x tools/*.sh
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install Safi and run the separate-UID probe
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            APK="$(ls release-output/*.apk | head -n 1)"
+            echo "Installing $APK"
+            adb install -r "$APK"
+
+            # QA probe: separate application id, throwaway local key, never the release key.
+            export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+            export ANDROID_BUILD_TOOLS="$ANDROID_BUILD_TOOLS"
+            export SAFI_KEYSTORE="$RUNNER_TEMP/probe-signing.jks"
+            bash tools/build-device-probe.sh
+            adb install -r artifacts/probe/probe.apk
+
+            # Grant VPN consent without the system dialog, then start the service with a
+            # visible activity in front (Android restricts background foreground-service starts).
+            adb shell appops set app.safi.shield ACTIVATE_VPN allow || true
+            adb shell am start -W -n app.safi.shield/.MainActivity
+            sleep 5
+            adb shell am start-foreground-service -n app.safi.shield/.ShieldVpnService -a app.safi.shield.START
+            sleep 20
+            adb shell dumpsys activity services app.safi.shield | grep -q ShieldVpnService \
+              || { echo 'Safi VPN service did not start:'; adb logcat -d | grep -iE 'safi|vpn' | tail -60; exit 1; }
+
+            adb logcat -c
+            adb shell am start -n app.safi.probe/.ProbeActivity
+            sleep 45
+            adb logcat -d -s SafiProbe:I | tee probe-output.txt
+            grep -q 'DEVICE TESTS COMPLETE: 8 passed, 0 failed' probe-output.txt
+
+      - name: Upload probe output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Safi-device-probe
+          path: |
+            probe-output.txt
+            artifacts/probe/probe.apk
+          if-no-files-found: ignore
+          retention-days: 14
+          archive: true
+
+      - name: Write device summary
+        if: always()
+        run: |
+          {
+            echo '## فحص المحاكي'
+            echo
+            if [ -f probe-output.txt ]; then
+              echo '```'
+              cat probe-output.txt
+              echo '```'
+            else
+              echo 'لم يُنتج ملف المخرجات؛ راجع خطوات المهمة.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
@@ -153,20 +261,22 @@ jobs:
           نزّل ملف `Safi-*-github.apk` من Assets وثبّته على أندرويد 8 أو أحدث.
           الملف موقّع بنفس شهادة النسخة الأصلية؛ الروت غير مطلوب ولا يطلب التطبيق صلاحياته.
 
-          هذه نسخة تجريبية. نجح البناء واختبار الكود في GitHub، لكن ذلك لا يعني أنها اختُبرت على كل هاتف.
+          هذه نسخة تجريبية. نجح البناء والاختبارات الآلية في GitHub، ونجاح البناء وحده لا يعني أنها اختُبرت على كل هاتف.
           يحجب التطبيق مصادر الإعلانات عبر DNS، ولا يضمن إزالة إعلانات يوتيوب أو إعلانات نفس نطاق المحتوى.
-          لا يعمل مع VPN آخر. طلبات DNS المسموحة تُرسل مشفّرة إلى Cloudflare.
+          لا يعمل مع VPN آخر، ولا تفعّل معه «حظر الاتصالات بدون VPN».
 
-          يوجد خيار حجب أوسع من القواعد، ويبقى الوضع الخفيف افتراضيًا. لا توجد نتيجة مؤكدة بأن إعلان Passion Drama Lite اختفى.
-          يمكن تشغيل فحص DNS بموافقة منفصلة لمدة دقيقتين: حتى 128 سجلًا في ذاكرة الجهاز، وقد يشمل أي تطبيق مفتوح، ولا يُرفع التقرير تلقائيًا. راجعه قبل نسخه أو مشاركته.
-          حجب شبكة الإعلان قد يمنع أيضًا فتح حلقة تشترط مشاهدة الإعلان، ولا يفتحها بداله.
+          يوجد اختيار لمزوّد DNS المشفّر (Cloudflare افتراضيًا، وأيضًا AdGuard DNS وGoogle)، وقائمة إضافية اختيارية من رابط https،
+          وزر في الاختصارات السريعة، ودعم «VPN دائم التشغيل» مع تحذير صريح من خيار حظر الاتصالات بدون VPN.
+          لا توجد نتيجة مؤكدة بأن إعلان Passion Drama Lite اختفى.
+          يمكن تشغيل فحص DNS بموافقة منفصلة لمدة دقيقتين: حتى 128 سجلًا في ذاكرة الجهاز، وقد يشمل أي تطبيق مفتوح، ولا يُرفع التقرير تلقائيًا.
+          حجب شبكة الإعلان قد يمنع أيضًا فتح حلقة تشترط مشاهدة إعلان، ولا يفتحها بداله.
 
-          المستودع خاص: يلزم تسجيل الدخول بحساب مخوّل للتنزيل.
+          المستودع عام، فالتنزيل لا يحتاج تسجيل دخول.
           الكود المقابل متاح في ملفات Source code لهذا الوسم، تحت GPL-3.0، بلا ضمان.
           بصمات APK ومعلومات المصدر والتوقيع مرفقة مع الإصدار.
           NOTES_EOF
           printf '\n[سجل البناء والاختبارات](%s/%s/actions/runs/%s)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$NOTES"
-          printf '\n[دليل الحجب الأوسع والفحص الاختياري](%s/%s/blob/%s/DIAGNOSTICS-AR.md)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$NOTES"
+          printf '\n[نطاق التحقق في هذا الإصدار](%s/%s/blob/%s/tests/UPDATE-1.2.md)\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$NOTES"
           gh release create "$TAG" release-output/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \

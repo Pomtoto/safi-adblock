@@ -1,0 +1,26 @@
+Android Lint (release) — Safi 1.2.0, 2026-10-12
+Command: ./gradlew :app:lintRelease  (lint 8.9.2, JDK 17, compileSdk 35)
+Result: BUILD SUCCESSFUL — 0 errors, 20 warnings
+
+Warnings (informational):
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:523: Warning: Avoid object allocations during draw/layout operations (preallocate and reuse instead) [DrawAllocation]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:526: Warning: Avoid object allocations during draw/layout operations (preallocate and reuse instead) [DrawAllocation]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:536: Warning: Avoid object allocations during draw/layout operations (preallocate and reuse instead) [DrawAllocation]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:539: Warning: Avoid object allocations during draw/layout operations (preallocate and reuse instead) [DrawAllocation]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:542: Warning: Avoid object allocations during draw/layout operations (preallocate and reuse instead) [DrawAllocation]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:542: Warning: Avoid object allocations during draw/layout operations (preallocate and reuse instead) [DrawAllocation]
+/home/user/repo/app/src/main/res/mipmap-anydpi-v26: Warning: This folder configuration (v26) is unnecessary; minSdkVersion is 26. Merge all the resources in this folder into mipmap-anydpi. [ObsoleteSdkInt]
+/home/user/repo/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml:1: Warning: The application adaptive icon is missing a monochrome tag [MonochromeLauncherIcon]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:148: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:149: Warning: Do not concatenate text displayed with setText. Use resource string with placeholders. [SetTextI18n]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:149: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:152: Warning: Do not concatenate text displayed with setText. Use resource string with placeholders. [SetTextI18n]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:152: Warning: String literal in setText can not be translated. Use Android resources instead. [SetTextI18n]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:118: Warning: Use "Gravity.END" instead of "Gravity.RIGHT" to ensure correct behavior in right-to-left locales [RtlHardcoded]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:119: Warning: Use "Gravity.END" instead of "Gravity.RIGHT" to ensure correct behavior in right-to-left locales [RtlHardcoded]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:236: Warning: Use "Gravity.START" instead of "Gravity.LEFT" to ensure correct behavior in right-to-left locales [RtlHardcoded]
+/home/user/repo/app/src/main/java/app/safi/shield/MainActivity.java:330: Warning: Use "Gravity.START" instead of "Gravity.LEFT" to ensure correct behavior in right-to-left locales [RtlHardcoded]
+
+Five NewApi/deprecation errors found in the new 1.2.0 code were fixed before this run:
+  Tile#setSubtitle gated to API 29+, startActivityAndCollapse(Intent) guarded by version with @SuppressLint,
+  and getSystemService(Context.STATUS_BAR_SERVICE) annotated, see tests/UPDATE-1.2.md.

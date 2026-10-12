@@ -2,6 +2,7 @@
 package app.safi.shield;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.*;
 import android.content.*;
 import android.content.pm.*;
@@ -26,11 +27,12 @@ public final class MainActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private int tab=0;private LinearLayout root,body;
-    private TextView statusPill,statusTitle,statusDetail,blockedValue,totalValue,sessionLabel,elapsedLabel,dnsTitle,dnsDetail;
+    private TextView statusPill,statusTitle,statusDetail,blockedValue,totalValue,sessionLabel,elapsedLabel,dnsTitle,dnsDetail,dnsLatency;
+    private LinearLayout lockdownNote;
     private Button toggle,updateButton,diagnosticStart,diagnosticView;private TextView diagnosticStatus;private HeroView hero;
     private final Runnable refresh=new Runnable(){public void run(){refreshDashboard();refreshDiagnostics();handler.postDelayed(this,1000);}};
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);AppState.init(this);if(state!=null)tab=state.getInt("tab",0);
+        super.onCreate(state);AppState.init(this);CrashLog.install(getApplicationContext());if(state!=null)tab=state.getInt("tab",0);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
         else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
@@ -63,7 +65,7 @@ public final class MainActivity extends Activity {
     private LinearLayout card(){LinearLayout c=vertical();c.setPadding(dp(18),dp(16),dp(18),dp(16));c.setBackground(shape(CARD,LINE,22));return c;}
     private void cardAdd(LinearLayout c){add(body,c);space(body,14);}
     private void render(){
-        statusPill=null;statusTitle=null;toggle=null;hero=null;updateButton=null;diagnosticStatus=null;diagnosticStart=null;diagnosticView=null;
+        statusPill=null;statusTitle=null;toggle=null;hero=null;updateButton=null;diagnosticStatus=null;diagnosticStart=null;diagnosticView=null;dnsLatency=null;lockdownNote=null;
         root=vertical();root.setBackgroundColor(BG);root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setOnApplyWindowInsetsListener((v,insets)->{
             if(Build.VERSION.SDK_INT>=30){Insets i=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(i.left,i.top,i.right,i.bottom);}
@@ -119,7 +121,12 @@ public final class MainActivity extends Activity {
         add(body,stats);space(body,14);
         LinearLayout dns=card();LinearLayout line=row();Glyph lock=new Glyph("lock",LIME);line.addView(lock,new LinearLayout.LayoutParams(dp(24),dp(24)));
         dnsTitle=text("DNS مشفّر عند التشغيل",14,INK,true);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMarginStart(dp(10));line.addView(dnsTitle,lp);add(dns,line);
-        space(dns,5);dnsDetail=text("Cloudflare · DNS over HTTPS",12,MUTED,false);dnsDetail.setTextDirection(View.TEXT_DIRECTION_LTR);add(dns,dnsDetail);cardAdd(dns);
+        space(dns,5);dnsDetail=text("DNS over HTTPS",12,MUTED,false);dnsDetail.setTextDirection(View.TEXT_DIRECTION_LTR);add(dns,dnsDetail);
+        space(dns,4);dnsLatency=text("",11,MUTED,false);dnsLatency.setTextDirection(View.TEXT_DIRECTION_LTR);add(dns,dnsLatency);cardAdd(dns);
+        lockdownNote=card();lockdownNote.setBackground(shape(0xff2a1f1a,0xff5a3a24,20));
+        add(lockdownNote,text("خطر في إعدادات VPN",13,AMBER,true));space(lockdownNote,3);
+        add(lockdownNote,text("خيار «حظر الاتصالات بدون VPN» مفعّل. صافي ينقل DNS فقط، لذلك قد تنقطع بقية الاتصالات. أوقف الخيار من إعدادات VPN.",12,MUTED,false));
+        lockdownNote.setOnClickListener(v->openVpnSettings());add(body,lockdownNote);space(body,14);
         LinearLayout note=card();note.setBackground(shape(0xff26271e,0xff3d3c2a,20));add(note,text("مو كل إعلان يختفي",13,AMBER,true));space(note,3);
         add(note,text("إعلانات يوتيوب وبعض تطبيقات التواصل قد تبقى. اعرف حدود الحجب من صفحة «حول».",12,MUTED,false));
         note.setOnClickListener(v->{tab=2;render();});cardAdd(note);
@@ -137,8 +144,15 @@ public final class MainActivity extends Activity {
         blockedValue.setText(number(AppState.blocked.get()));totalValue.setText(number(AppState.requests.get()));
         sessionLabel.setText(active||busy?"هذه الجلسة • طلبات DNS، مو عدد الإعلانات":"آخر جلسة • عدادات محفوظة على جهازك");
         elapsedLabel.setText(active?duration((SystemClock.elapsedRealtime()-AppState.startedAt)/1000):"");
-        if(active&&AppState.lastFailure>AppState.lastSuccess){dnsTitle.setText("تعذّر الوصول إلى DNS");dnsTitle.setTextColor(AMBER);dnsDetail.setText("افحص الإنترنت، أو أوقف الحماية إذا توقف الاتصال.");}
-        else{dnsTitle.setText(active?(AppState.lastSuccess>0?"اتصال DNS المشفّر يعمل":"بانتظار أول طلب DNS مسموح"):"DNS مشفّر عند التشغيل");dnsTitle.setTextColor(INK);dnsDetail.setText("Cloudflare · DNS over HTTPS");}
+        boolean failing=AppState.lastFailure>AppState.lastSuccess||AppState.openEndpoints>0;
+        if(active&&failing){dnsTitle.setText("تعذّر الوصول إلى مزوّد DNS");dnsTitle.setTextColor(AMBER);dnsDetail.setText("افحص الإنترنت، أو غيّر المزوّد من «القواعد»، أو أوقف الحماية.");}
+        else{dnsTitle.setText(active?AppState.upstreamState():"DNS مشفّر عند التشغيل");dnsTitle.setTextColor(INK);dnsDetail.setText(AppPrefs.provider(this).label+" · DNS over HTTPS");}
+        if(dnsLatency!=null){
+            if(!active)dnsLatency.setText("");
+            else if(AppState.lastLatency>0)dnsLatency.setText("آخر رد "+AppState.lastLatency+" ms"+(AppState.coalesced.get()>0?" • طلبات مدمجة: "+number(AppState.coalesced.get()):""));
+            else dnsLatency.setText("بانتظار أول رد من المزوّد");
+        }
+        if(lockdownNote!=null)lockdownNote.setVisibility(AppState.lockdown?View.VISIBLE:View.GONE);
     }
     private String number(long n){return String.format(Locale.US,"%,d",n);}
     private String duration(long sec){sec=Math.max(0,sec);return sec>=3600?String.format(Locale.US,"%d:%02d:%02d",sec/3600,(sec/60)%60,sec%60):String.format(Locale.US,"%02d:%02d",sec/60,sec%60);}
@@ -151,8 +165,14 @@ public final class MainActivity extends Activity {
         TextView count=text(number(AppPrefs.count(this))+"  نطاق",27,LIME,true);add(list,count);
         add(list,text(mode.title,13,INK,true));space(list,4);
         add(list,text(mode==BlockProfile.NORMAL?"قائمة أوسع للإعلانات والتتبّع. قد تؤثر على بعض الخدمات؛ ليست ضمانًا لحجب كل إعلان.":"القائمة الخفيفة السابقة. يمكنك تجربة أوسع إذا بقيت إعلانات. القائمتان مضمّنتان.",12,MUTED,false));
-        space(list,9);TextView ver=text("الإصدار: "+AppPrefs.version(this),11,MUTED,false);add(list,ver);space(list,14);
+        space(list,9);TextView ver=text("الإصدار: "+AppPrefs.version(this),11,MUTED,false);add(list,ver);
+        add(list,text("بصمة الملف: "+AppPrefs.fingerprint(this,mode),11,MUTED,false));
+        int skipped=AppPrefs.skipped(this);
+        if(skipped>0)add(list,text("تم تجاهل "+number(skipped)+" سطرًا غير صالح أثناء قراءة القائمة.",11,AMBER,false));
+        space(list,14);
         updateButton=button(AppState.listUpdating.get()?"جارٍ التحديث…":"تحديث القائمة",false);updateButton.setEnabled(!AppState.listUpdating.get());add(list,updateButton);updateButton.setOnClickListener(v->updateList());cardAdd(list);
+        extraListCard();
+        setting("مزوّد DNS المشفّر","الحالي: "+AppPrefs.provider(this).label,"lock",this::chooseProvider);
         diagnosticCard();
         setting("نطاقات مسموحة","استثناء مواقع من الحجب • "+userCount("allowed"),"check",()->editDomains("allowed",true));
         setting("حجب يدوي","أضف نطاق إعلان غير محجوب • "+userCount("custom"),"plus",()->editDomains("custom",false));
@@ -199,7 +219,7 @@ public final class MainActivity extends Activity {
         }
         if(AppState.state!=AppState.ON){toast("شغّل الحماية وانتظر حتى تعمل، ثم ابدأ الفحص.");return;}
         new AlertDialog.Builder(this).setTitle("موافقة على فحص DNS مؤقت")
-                .setMessage("سيحتفظ صافي بأسماء النطاقات ونتائج طلبات DNS في الذاكرة أثناء الفحص، لمدة دقيقتين فقط. قد تظهر طلبات أي تطبيق آخر يعمل على جهازك؛ هذا ليس سجلًا خاصًا بتطبيق واحد. أغلق التطبيقات الأخرى قدر الإمكان.\n\nلا يسجّل محتوى الفيديو أو الرسائل أو روابط الصفحات الكاملة، ولا يحفظ التقرير بملف أو يرفعه تلقائيًا. يستمر إرسال طلبات DNS المسموحة مشفّرة إلى Cloudflare كالمعتاد.\n\nالنتائج محدودة بـ128 سجلًا، وتُمحى عند إيقاف الحماية أو المسح، وتصبح غير متاحة بعد 15 دقيقة من بدء الفحص. عند نسخها يدويًا راجعها قبل مشاركتها. سيستبدل الفحص الجديد أي نتائج سابقة.")
+                .setMessage("سيحتفظ صافي بأسماء النطاقات ونتائج طلبات DNS في الذاكرة أثناء الفحص، لمدة دقيقتين فقط. قد تظهر طلبات أي تطبيق آخر يعمل على جهازك؛ هذا ليس سجلًا خاصًا بتطبيق واحد. أغلق التطبيقات الأخرى قدر الإمكان.\n\nلا يسجّل محتوى الفيديو أو الرسائل أو روابط الصفحات الكاملة، ولا يحفظ التقرير بملف أو يرفعه تلقائيًا. يستمر إرسال طلبات DNS المسموحة مشفّرة إلى " + AppPrefs.provider(this).label + " كالمعتاد.\n\nالنتائج محدودة بـ128 سجلًا، وتُمحى عند إيقاف الحماية أو المسح، وتصبح غير متاحة بعد 15 دقيقة من بدء الفحص. عند نسخها يدويًا راجعها قبل مشاركتها. سيستبدل الفحص الجديد أي نتائج سابقة.")
                 .setNegativeButton("إلغاء",null).setPositiveButton("أوافق، ابدأ الفحص",(d,w)->{
                     if(AppState.state!=AppState.ON){toast("الحماية غير شغّالة؛ لم يبدأ الفحص.");return;}
                     AppState.diagnostics.start(AppPrefs.profile(this).title);refreshDiagnostics();
@@ -247,13 +267,14 @@ public final class MainActivity extends Activity {
     private void about(){
         pageTitle("أقل إزعاج.\nبلا صلاحيات زائدة.","صافي "+appVersion()+" • للأندرويد 8 والأحدث");
         LinearLayout privacy=card();add(privacy,text("خصوصيتك أولًا",18,LIME,true));space(privacy,8);
-        add(privacy,text("صافي ينشئ VPN محلي لتصفية طلبات DNS فقط. ما يقرأ محتوى الرسائل أو صفحات HTTPS، وما يغيّر عنوان IP أو بلدك.\n\nالنطاقات المسموحة تُرسل مشفّرة إلى Cloudflare لحلّ DNS. بشكل افتراضي لا يوجد سجل أسماء أو تحليلات؛ فقط إعدادات وعدادات وذاكرة DNS مؤقتة.\n\nالفحص الاختياري من القواعد يسجّل أسماء DNS ونتائجها في الذاكرة لمدة دقيقتين بعد موافقتك، وقد يشمل أي تطبيق مفتوح. لا يرفع التقرير تلقائيًا، وتُمحى نتائجه عند إيقاف الحماية أو المسح أو انتهاء مهلة الاحتفاظ (15 دقيقة من البدء). النسخ للحافظة يحتاج ضغطك على زر النسخ.",14,MUTED,false));
-        space(privacy,14);Button policy=button("سياسة خصوصية مزوّد DNS",false);add(privacy,policy);policy.setOnClickListener(v->external("https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/"));cardAdd(privacy);
+        add(privacy,text("صافي ينشئ VPN محلي لتصفية طلبات DNS فقط. ما يقرأ محتوى الرسائل أو صفحات HTTPS، وما يغيّر عنوان IP أو بلدك.\n\nالنطاقات المسموحة تُرسل مشفّرة إلى مزوّد DNS الذي تختاره من صفحة «القواعد». بشكل افتراضي لا يوجد سجل أسماء أو تحليلات؛ فقط إعدادات وعدادات وذاكرة DNS مؤقتة، وسجل أعطال محلي بلا أي إرسال.\n\nالفحص الاختياري من القواعد يسجّل أسماء DNS ونتائجها في الذاكرة لمدة دقيقتين بعد موافقتك، وقد يشمل أي تطبيق مفتوح. لا يرفع التقرير تلقائيًا، وتُمحى نتائجه عند إيقاف الحماية أو المسح أو انتهاء مهلة الاحتفاظ (15 دقيقة من البدء). النسخ للحافظة يحتاج ضغطك على زر النسخ.\n\nروابط القوائم التي تضيفها يدويًا تُنزّل مرة عند طلبك فقط، ولا تُرفع أي بيانات عنك.",14,MUTED,false));
+        space(privacy,14);Button policy=button("سياسة خصوصية المزوّد الحالي",false);add(privacy,policy);policy.setOnClickListener(v->external(AppPrefs.provider(this).privacyUrl));cardAdd(privacy);
         LinearLayout limits=card();add(limits,text("شنو يگدر يحجب؟",18,AMBER,true));space(limits,9);
         add(limits,text("• يحجب مصادر إعلانات وتتبّع منفصلة في كثير من التطبيقات والألعاب. قد تبقى مساحة فارغة مكان الإعلان.\n\n• لا يضمن إزالة إعلانات يوتيوب أو الإعلانات التي تستخدم نفس نطاق المحتوى. DNS المشفّر داخل التطبيق، أو الاتصال بعنوان IP مباشر، قد يتجاوز الحجب.\n\n• بعض الألعاب والحلقات تحتاج إعلانًا لمنح مكافأة أو فتح محتوى؛ الحجب قد يمنع الفتح ولا يمنح المكافأة بداله. استثنِ التطبيق إذا تأثر.\n\n• لا يعمل مع VPN آخر في الوقت نفسه، ولا تستخدم معه «حظر الاتصالات بدون VPN». شغّله يدويًا بعد إعادة تشغيل الهاتف.\n\n• لا يحتاج روت، ويعمل أيضًا على الأجهزة المروّتة بنفس الطريقة، بدون طلب صلاحيات الروت.",14,MUTED,false));cardAdd(limits);
         setting("إذا توقف موقع أو تطبيق","جرّب استثناءه من القواعد، أو أوقف الحماية.","info",()->{tab=1;render();});
+        setting("سجل الأعطال المحلي","آخر الأخطاء على جهازك فقط، بلا إرسال.","info",this::showCrashLog);
         LinearLayout legal=card();add(legal,text("مفتوح المصدر • GPL-3.0",15,INK,true));space(legal,5);
-        add(legal,text("© 2026 مساهمو صافي. هذه نسخة تجريبية تُقدَّم بلا ضمان. يحق لك نسخها وتعديلها وإعادة توزيعها وفق GPL-3.0. قائمة HaGeZi تحت الرخصة نفسها. التطبيق مستقل وغير تابع لـ Cloudflare أو HaGeZi.",12,MUTED,false));
+        add(legal,text("© 2026 مساهمو صافي. هذه نسخة تجريبية تُقدَّم بلا ضمان. يحق لك نسخها وتعديلها وإعادة توزيعها وفق GPL-3.0. قائمة HaGeZi تحت الرخصة نفسها. التطبيق مستقل وغير تابع لأي مزوّد DNS ولا لقائمة HaGeZi.",12,MUTED,false));
         space(legal,13);Button license=button("عرض الترخيص",false);add(legal,license);license.setOnClickListener(v->showLicense());
         space(legal,8);Button source=button("مصدر قائمة الحجب",false);add(legal,source);source.setOnClickListener(v->external("https://github.com/hagezi/dns-blocklists"));cardAdd(legal);
         add(body,center("صافي • DNS محلي، بدون روت أو شهادة",11,MUTED,false));
@@ -263,12 +284,13 @@ public final class MainActivity extends Activity {
         if(AppState.state==AppState.ON){startService(new Intent(this,ShieldVpnService.class).setAction(ShieldVpnService.STOP));refreshDashboard();return;}
         if(!AppPrefs.get(this).getBoolean("disclosure",false)){
             new AlertDialog.Builder(this).setTitle("قبل ما تشغّل صافي")
-                    .setMessage("سيطلب أندرويد إذن VPN. الاتصال محلي لتصفية DNS فقط، مو VPN لتغيير البلد.\n\nأسماء النطاقات المسموحة تُرسل مشفّرة إلى Cloudflare (1.1.1.1). ما نقرأ المحتوى. لا نسجّل أسماء النطاقات افتراضيًا؛ الفحص الاختياري يحتاج موافقة منفصلة، ويحتفظ بتقرير مؤقت في الذاكرة فقط. تحديث القائمة عند طلبك يتصل بـ GitHub.\n\nما يشتغل مع VPN آخر، وما يضمن حجب كل إعلان. تگدر توقفه بأي وقت من التطبيق أو الإشعار.")
+                    .setMessage("سيطلب أندرويد إذن VPN. الاتصال محلي لتصفية DNS فقط، مو VPN لتغيير البلد.\n\nأسماء النطاقات المسموحة تُرسل مشفّرة إلى مزوّد DNS المختار (" + AppPrefs.provider(this).label + "). ما نقرأ المحتوى. لا نسجّل أسماء النطاقات افتراضيًا؛ الفحص الاختياري يحتاج موافقة منفصلة، ويحتفظ بتقرير مؤقت في الذاكرة فقط. تحديث القائمة عند طلبك يتصل بـ GitHub.\n\nما يشتغل مع VPN آخر، وما يضمن حجب كل إعلان. تگدر توقفه بأي وقت من التطبيق أو الإشعار.")
                     .setNegativeButton("مو هسه",null).setPositiveButton("موافق، متابعة",(d,w)->{AppPrefs.get(this).edit().putBoolean("disclosure",true).apply();checkPrivateDns();}).show();
         }else checkPrivateDns();
     }
     private void checkPrivateDns(){
-        String mode=null;try{mode=Settings.Global.getString(getContentResolver(),"private_dns_mode");}catch(SecurityException ignored){}
+        // Settings.Global has no public constant for this key; the string is the stable platform one.
+        String mode=null;try{mode=Settings.Global.getString(getContentResolver(),"private_dns_mode");}catch(RuntimeException ignored){}
         if("hostname".equals(mode)){
             new AlertDialog.Builder(this).setTitle("راجع DNS الخاص")
                     .setMessage("DNS الخاص مضبوط على مزوّد محدد، وهذا ممكن يتجاوز الحجب. اجعله «تلقائي» أو «إيقاف»، ثم شغّل صافي. إذا بقيت الإعلانات، عطّل DNS الآمن داخل المتصفح أيضًا.")
@@ -349,6 +371,129 @@ public final class MainActivity extends Activity {
                 toast(result!=null?result:applied?"تم تحديث قائمة "+mode.label+".":"تم تحديث القائمة؛ أعد تشغيل الحماية لتطبيقها.");render();
             });
         });}catch(RejectedExecutionException e){AppState.listUpdating.set(false);refreshDiagnostics();}
+    }
+    private void chooseProvider(){
+        final DnsProvider[] providers=DnsProvider.values();String[] labels=new String[providers.length];
+        for(int i=0;i<providers.length;i++)labels[i]=providers[i].label+"  —  "+providers[i].hosts();
+        new AlertDialog.Builder(this).setTitle("مزوّد DNS المشفّر")
+                .setMessage("كل المزوّدين هنا يستخدمون DNS over HTTPS بشهادة TLS مُتحقَّق منها. تبديل المزوّد يفيد إذا كان مزوّدك الحالي محجوبًا أو بطيئًا في شبكتك.")
+                .setSingleChoiceItems(labels,AppPrefs.provider(this).ordinal(),(dialog,which)->{
+                    dialog.dismiss();
+                    DnsProvider next=providers[which];
+                    if(next==AppPrefs.provider(this))return;
+                    AppPrefs.get(this).edit().putString("provider",next.id).apply();changed();
+                }).setNegativeButton("إغلاق",null).show();
+    }
+    private String extraStatus(){
+        if(!AppPrefs.customEnabled(this))
+            return AppPrefs.extraUrl(this).isEmpty()?"غير مفعّلة. أضف رابط قائمة نصوص https.":"محفوظة لكن غير مفعّلة.";
+        return "مفعّلة • "+number(AppPrefs.extraCount(this))+" نطاق مضاف"+(AppPrefs.extraSkipped(this)>0?" • تم تجاهل "+number(AppPrefs.extraSkipped(this))+" سطرًا":"")+"\n"+AppPrefs.extraUrl(this);
+    }
+    private void extraListCard(){
+        LinearLayout c=card();add(c,text("قائمة إضافية من رابط",16,INK,true));space(c,6);
+        add(c,text("اختياري: رابط https لقائمة نصوص — نطاقات فقط، أو صيغة hosts، أو ||domain^ — تُدمج مع القائمة المحلية. «النطاقات المسموحة» تبقى لها الأولوية، وأي فشل في التنزيل يبقي القائمة السابقة.",12,MUTED,false));
+        space(c,8);TextView status=text(extraStatus(),11,AMBER,false);status.setTextDirection(View.TEXT_DIRECTION_LTR);add(c,status);space(c,12);
+        Button edit=button("تعديل الرابط",false);add(c,edit);edit.setOnClickListener(v->editExtraUrl());space(c,8);
+        Button update=button("تحديث القائمة الإضافية",false);add(c,update);update.setOnClickListener(v->updateExtraList());space(c,8);
+        Button toggle=button(AppPrefs.customEnabled(this)?"إيقاف القائمة الإضافية":"تفعيل القائمة الإضافية",false);
+        toggle.setEnabled(!AppPrefs.extraUrl(this).isEmpty());add(c,toggle);
+        toggle.setOnClickListener(v->{
+            final boolean enable=!AppPrefs.customEnabled(this);
+            AppPrefs.get(this).edit().putBoolean("custom_url_enabled",enable).apply();
+            if(!enable){changed();return;}
+            toast("جارٍ تنزيل القائمة الإضافية…");
+            io.execute(()->{
+                try{if(AppPrefs.extraCount(this)==0)AppPrefs.updateCustomList(this);}catch(IOException ignored){}
+                runOnUiThread(()->{if(!isFinishing()&&!isDestroyed())changed();});
+            });
+        });
+        space(c,7);add(c,text("تُنزَّل مرة عند التفعيل أو عند ضغط التحديث فقط، وتبقى في التخزين الخاص بالتطبيق.",11,MUTED,false));cardAdd(c);
+    }
+    private void editExtraUrl(){
+        LinearLayout content=vertical();content.setPadding(dp(22),dp(10),dp(22),0);content.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        add(content,text("رابط https مباشر لملف نصوص. ما نقبل http ولا روابط تحتاج تسجيل دخول. تُقبل قوائم كبيرة حتى 16 ميغابايت.",13,MUTED,false));space(content,12);
+        EditText edit=new EditText(this);edit.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        edit.setTypeface(Typeface.MONOSPACE);edit.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);edit.setTextDirection(View.TEXT_DIRECTION_LTR);
+        edit.setTextColor(INK);edit.setHintTextColor(MUTED);edit.setHint("https://example.com/blocklist.txt");edit.setText(AppPrefs.extraUrl(this));add(content,edit);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("قائمة إضافية").setView(content).setNegativeButton("إلغاء",null).setPositiveButton("حفظ",null).create();
+        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b->{
+            try{
+                String url=AppPrefs.validatedUrl(edit.getText().toString());
+                AppPrefs.get(this).edit().putString("custom_url",url).putBoolean("custom_url_enabled",!url.isEmpty()).apply();
+                dialog.dismiss();
+                if(url.isEmpty()){AppPrefs.forgetCustomList(this);toast("أُلغيت القائمة الإضافية.");changed();return;}
+                toast("جارٍ تنزيل القائمة الإضافية…");updateExtraList();
+            }catch(IllegalArgumentException e){edit.setError(e.getMessage());}
+        }));
+        dialog.show();
+    }
+    private void updateExtraList(){
+        if(!AppState.listUpdating.compareAndSet(false,true))return;
+        if(AppPrefs.extraUrl(this).isEmpty()){AppState.listUpdating.set(false);toast("أضف رابط قائمة أولًا.");return;}
+        final Context app=getApplicationContext();refreshDiagnostics();
+        io.execute(()->{
+            String message=null;
+            try{AppPrefs.updateCustomList(app);}catch(Exception e){message=e.getMessage()==null?"تعذّر تحديث القائمة الإضافية؛ بقيت السابقة.":e.getMessage();}
+            finally{AppState.listUpdating.set(false);}
+            final String result=message;
+            runOnUiThread(()->{
+                if(isFinishing()||isDestroyed())return;
+                if(result==null){toast("تم تحديث القائمة الإضافية.");applyRunningRules(app);}
+                else toast(result);
+                render();
+            });
+        });
+    }
+    private void autostartCard(){
+        LinearLayout c=card();add(c,text("التشغيل بعد إعادة التشغيل",16,INK,true));space(c,6);
+        add(c,text("صافي ما يبدأ من نفسه عند إقلاع الهاتف. لتشغيله تلقائيًا، فعّل «VPN دائم التشغيل» من إعدادات VPN في أندرويد واختر صافي. لا تفعّل معه «حظر الاتصالات بدون VPN»: صافي ينقل DNS فقط، وهذا الخيار سيقطع بقية الاتصالات.",12,MUTED,false));
+        space(c,12);Button vpn=button("فتح إعدادات VPN",false);add(c,vpn);vpn.setOnClickListener(v->openVpnSettings());space(c,8);
+        Button tile=button("أضف زر الاختصارات السريعة",false);add(c,tile);tile.setOnClickListener(v->addTile());cardAdd(c);
+    }
+    private void openVpnSettings(){
+        try{startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));}
+        catch(ActivityNotFoundException e){
+            try{startActivity(new Intent(Settings.ACTION_WIRELESS_SETTINGS));}
+            catch(ActivityNotFoundException ignored){toast("افتح إعدادات الشبكة وابحث عن VPN.");}
+        }
+    }
+    // Context.STATUS_BAR_SERVICE is public, but lint's getSystemService() allow-list omits it.
+    @SuppressLint({"NewApi", "WrongConstant"})
+    private void addTile(){
+        if(Build.VERSION.SDK_INT>=33){
+            try{
+                StatusBarManager status=(StatusBarManager)getSystemService(Context.STATUS_BAR_SERVICE);
+                if(status!=null){
+                    status.requestAddTileService(new ComponentName(this,SafiTileService.class),getString(R.string.app_name),
+                            Icon.createWithResource(this,R.drawable.ic_shield),getMainExecutor(),result->{
+                                if(result==StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED)toast("زر صافي موجود أصلًا في الاختصارات السريعة.");
+                                else if(result==StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED)toast("أُضيف زر صافي للاختصارات السريعة.");
+                                else toast("أندرويد ما أضاف الزر الآن؛ أضفه يدويًا من تحرير الاختصارات.");
+                            });
+                    return;
+                }
+            }catch(RuntimeException ignored){}
+        }
+        new AlertDialog.Builder(this).setTitle("زر الاختصارات السريعة")
+                .setMessage("اسحب لوحة الاختصارات السريعة من أعلى الشاشة، اضغط أيقونة التعديل، ثم أضف زر «صافي» — منه تشغّل الحماية وتوقفها بضغطة.")
+                .setPositiveButton("فهمت",null).show();
+    }
+    private void showCrashLog(){
+        final String report=CrashLog.read(this);
+        if(report.isEmpty()){toast("ماكو سجلات أعطال محلية.");return;}
+        LinearLayout content=vertical();content.setPadding(dp(18),dp(8),dp(18),dp(12));
+        add(content,text("يُحفظ محليًا على جهازك فقط ولا يُرسل تلقائيًا. راجعه قبل مشاركته لأنه قد يذكر أسماء حزم أو ملفات.",12,MUTED,false));space(content,8);
+        TextView t=text(report,12,INK,false);t.setTypeface(Typeface.MONOSPACE);t.setTextDirection(View.TEXT_DIRECTION_LTR);t.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        t.setTextIsSelectable(true);ScrollView scroll=new ScrollView(this);scroll.addView(t);content.addView(scroll,new LinearLayout.LayoutParams(-1,dp(260)));
+        new AlertDialog.Builder(this).setTitle("سجل الأعطال المحلي").setView(content).setNegativeButton("إغلاق",null)
+                .setNeutralButton("مسح",(d,w)->{CrashLog.clear(this);toast("تم مسح سجل الأعطال.");})
+                .setPositiveButton("نسخ",(d,w)->{
+                    try{
+                        ClipData data=ClipData.newPlainText("Safi crash log",report);
+                        PersistableBundle privacy=new PersistableBundle();privacy.putBoolean("android.content.extra.IS_SENSITIVE",true);data.getDescription().setExtras(privacy);
+                        getSystemService(ClipboardManager.class).setPrimaryClip(data);toast("نُسخ السجل للحافظة.");
+                    }catch(RuntimeException e){toast("تعذّر النسخ وفق إعدادات الجهاز.");}
+                }).show();
     }
     private void openDnsSettings(){
         try{startActivity(new Intent("android.settings.PRIVATE_DNS_SETTINGS"));}

@@ -129,6 +129,33 @@ public final class DnsCodec {
             return Math.min(300,records(response,null,false,0));
         }catch(Exception e){return 0;}
     }
+    /** TTL for a negative answer (NXDOMAIN, or NODATA with an SOA in the authority section). */
+    public static long negativeTtl(byte[] response) {
+        try {
+            need(response,0,12);
+            if((u16(response,2)&0x0200)!=0)return 0;
+            int rcode=u16(response,2)&15;
+            if(rcode!=3&&!(rcode==0&&u16(response,6)==0))return 0;
+            return soaTtl(response);
+        }catch(Exception e){return 0;}
+    }
+    private static long soaTtl(byte[] b)throws IOException {
+        need(b,0,12);
+        int p=12,questions=u16(b,4);
+        if(questions>16)return 0;
+        for(int i=0;i<questions;i++){Name n=name(b,p);p=n.next;need(b,p,4);p+=4;}
+        int count=u16(b,6)+u16(b,8)+u16(b,10);
+        if(count>4096)return 0;
+        long min=0;
+        for(int i=0;i<count;i++){
+            Name n=name(b,p);p=n.next;need(b,p,10);
+            int type=u16(b,p),len=u16(b,p+8);long ttl=u32(b,p+4);
+            need(b,p+10,len);
+            if(type==6)min=(min==0)?ttl:Math.min(min,ttl);
+            p+=10+len;
+        }
+        return min==0?0:Math.min(120,min);
+    }
     public static byte[] aged(byte[] original,long seconds,int id)throws IOException {
         byte[] out=original.clone();records(out,null,true,seconds);put16(out,0,id);return out;
     }
