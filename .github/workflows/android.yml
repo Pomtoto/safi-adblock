@@ -178,36 +178,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
-            # The emulator action runs this through /usr/bin/sh (dash), which rejects
-            # `set -o pipefail`; keep only the portable options here.
-            set -eu
-            APK="$(ls release-output/*.apk | head -n 1)"
-            echo "Installing $APK"
-            adb install -r "$APK"
-
-            # QA probe: separate application id, throwaway local key, never the release key.
-            export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-            export ANDROID_BUILD_TOOLS="$ANDROID_BUILD_TOOLS"
-            export SAFI_KEYSTORE="$RUNNER_TEMP/probe-signing.jks"
-            bash tools/build-device-probe.sh
-            adb install -r artifacts/probe/probe.apk
-
-            # Grant VPN consent without the system dialog, then start the service with a
-            # visible activity in front (Android restricts background foreground-service starts).
-            adb shell appops set app.safi.shield ACTIVATE_VPN allow || true
-            adb shell am start -W -n app.safi.shield/.MainActivity
-            sleep 5
-            adb shell am start-foreground-service -n app.safi.shield/.ShieldVpnService -a app.safi.shield.START
-            sleep 20
-            adb shell dumpsys activity services app.safi.shield | grep -q ShieldVpnService \
-              || { echo 'Safi VPN service did not start:'; adb logcat -d | grep -iE 'safi|vpn' | tail -60; exit 1; }
-
-            adb logcat -c
-            adb shell am start -n app.safi.probe/.ProbeActivity
-            sleep 45
-            adb logcat -d -s SafiProbe:I | tee probe-output.txt
-            grep -q 'DEVICE TESTS COMPLETE: 8 passed, 0 failed' probe-output.txt
-
+            bash tools/device-probe-ci.sh
       - name: Upload probe output
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
