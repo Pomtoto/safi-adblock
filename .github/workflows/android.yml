@@ -178,7 +178,9 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
-            set -euo pipefail
+            # The emulator action runs this through /usr/bin/sh (dash), which rejects
+            # `set -o pipefail`; keep only the portable options here.
+            set -eu
             APK="$(ls release-output/*.apk | head -n 1)"
             echo "Installing $APK"
             adb install -r "$APK"
