@@ -141,6 +141,10 @@ adb install -r artifacts/probe/probe.apk || fail "adb install failed for the QA 
 # are allowed - so pressing the button in the app is both the honest path and the one
 # a real user takes.
 adb shell appops set app.safi.shield ACTIVATE_VPN allow || true
+# Safi asks for POST_NOTIFICATIONS on first start. Pre-granting it keeps the system
+# permission dialog (which blocked the screen for the whole run once) out of the way.
+adb shell pm grant app.safi.shield android.permission.POST_NOTIFICATIONS || true
+adb shell appops set app.safi.shield POST_NOTIFICATION allow || true
 adb shell am start -W -n app.safi.shield/.MainActivity >/dev/null || fail "Safi did not start"
 sleep 4
 
@@ -150,7 +154,7 @@ sleep 4
 # scroll the page when the button we want is simply further down.
 for attempt in $(seq 1 10); do
     vpn_up && break
-    if tap_label "موافق، متابعة" "تشغيل مع التنبيه" "تشغيل الحماية" \
+    if tap_label "موافق، متابعة" "Allow" "تشغيل مع التنبيه" "تشغيل الحماية" \
                  "إضافة" "Add" "ADD" "OK" "موافق"; then
         sleep 3
         continue
